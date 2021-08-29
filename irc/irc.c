@@ -1,5 +1,33 @@
 #include "irc.h"
+/**
+ ██████╗    ██╗██████╗  ██████╗    ██████╗  █████╗ ██████╗ ███████╗███████╗██████╗
+██╔════╝    ██║██╔══██╗██╔════╝    ██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔════╝██╔══██╗
+██║         ██║██████╔╝██║         ██████╔╝███████║██████╔╝███████╗█████╗  ██████╔╝
+██║         ██║██╔══██╗██║         ██╔═══╝ ██╔══██║██╔══██╗╚════██║██╔══╝  ██╔══██╗
+╚██████╗    ██║██║  ██║╚██████╗    ██║     ██║  ██║██║  ██║███████║███████╗██║  ██║
+ ╚═════╝    ╚═╝╚═╝  ╚═╝ ╚═════╝    ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝
+            https://github.com/tixlegeek/ircCParser/tree/main/irc
 
+ @tixlegeek <https://tixlegeek.io>
+            <https://twitter.com/tixlegeek>
+            <https://twitch.tv/tixlegeek>
+
+ * This file is part of the XXX distribution (https://github.com/xxxx or http://xxx.github.io).
+ * Copyright (c) 2015 Liviu Ionescu.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, version 3.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
 #ifndef HAVE_ASPRINTF
 #include <stdarg.h>
 int vasprintf(char **ret, const char *format, va_list ap) {
@@ -34,6 +62,10 @@ int asprintf(char **ret, const char *format, ...) {
 }
 #endif /*HAVE_ASPRINTF*/
 
+/**
+  Parses informations stored in ircConnection->buffer
+  and fires callbacks;
+*/
 ircCommand_t ircParse(ircCtx_t *ircConnection) {
   ircCallbackList_t *callbacks = (ircCallbackList_t *)ircConnection->callbacks;
   char *ptr = strdup(ircConnection->buffer);
@@ -42,6 +74,7 @@ ircCommand_t ircParse(ircCtx_t *ircConnection) {
     return IRC_GLOBAL_ERROR;
   }
   char *ptrdup = ptr;
+
   char *cmd = NULL;
   char *sender = NULL;
   char *hostname = NULL;
@@ -54,14 +87,9 @@ ircCommand_t ircParse(ircCtx_t *ircConnection) {
   char *tokptr_args = NULL;
 
   char *buffer = NULL;
-  uint16_t argLen;
   uint8_t i = 0;
   // reinit ptrs
-  ircConnection->channelPtr = NULL;
-  ircConnection->channelLen = 0;
-  ircConnection->privmsgPtr = NULL;
-  ircConnection->privmsgLen = 0;
-// Splits the message depending on its construction.
+  // Splits the message depending on its construction.
 #ifdef IRC_DEBUG
   printf("[>]" CYN " %s" CRST "\n", ircConnection->buffer);
 #endif
@@ -97,17 +125,16 @@ ircCommand_t ircParse(ircCtx_t *ircConnection) {
   printf(".....[?]" YEL " CMD: \"%s\"" CRST "\n", cmd);
   printf(".....[?]" YEL " ARGS: \"%s\"" CRST "\n", args);
 #endif
-  argLen = strlen(args);
 
   // Message parsing
   // PING requests
   if ((strncmp(cmd, "PING", 4)) == 0) {
-    buffer = malloc((argLen + 5) * sizeof(char));
-    if (buffer == NULL) {
+    buffer = NULL;
+    int bufferLen = asprintf(&buffer, "PONG %s", args);
+    if (bufferLen == -1) {
       ircConnection->status = IRC_MEMERROR;
-      ircConnection->command = IRC_GLOBAL_ERROR;
+      return IRC_GLOBAL_ERROR;
     }
-    sprintf(buffer, "PONG %s", args);
     ircSend(ircConnection, buffer);
     free(buffer);
     ircConnection->command = IRC_CMD_PING;
@@ -120,34 +147,20 @@ ircCommand_t ircParse(ircCtx_t *ircConnection) {
     printf(".....[?]" YEL " CHANNEL: \"%s\"" CRST "\n", channel);
     printf(".....[?]" YEL " PRIVMSG: \"%s\"" CRST "\n", privmsg);
 #endif
-    // struct ircCallbackList_t *callbacks =
-    // (struct ircCallbackList_t*)ircConnection->callbacks;
     // compute the place of the pointer on the buffer
 
     // trims PRIVMSG
-    if (strncmp(channel, ircConnection->nick, strlen(ircConnection->nick)) ==
-        0) {
-      printf("%s %s ************* PRIVATE MESSAGE ******************\n",
-             ircConnection->nick, channel);
-    }
+    if (strncmp(channel, ircConnection->nick, strlen(ircConnection->nick)) == 0)
+      ircConnection->command = IRC_CMD_PRIVMSG;
+    else
+      ircConnection->command = IRC_CMD_PUBMSG;
     while (*privmsg == ' ')
       privmsg++;
 
     if (privmsg[0] == '!') {
-      ircConnection->senderPtr =
-          (ircConnection->buffer + (uint16_t)(sender - ptr + 1));
-      ircConnection->senderLen = strlen(sender);
-      *(ircConnection->senderPtr + ircConnection->senderLen) = '\0';
-
-      ircConnection->channelPtr =
-          (ircConnection->buffer + (uint16_t)(channel - ptr + 1));
-      ircConnection->channelLen = strlen(channel);
-      *(ircConnection->channelPtr + ircConnection->channelLen) = '\0';
-
-      ircConnection->privmsgPtr =
-          (ircConnection->buffer + (uint16_t)(privmsg - ptr + 1));
-      ircConnection->privmsgLen = strlen(privmsg);
-      *(ircConnection->privmsgPtr + ircConnection->privmsgLen) = '\0';
+      ircConnection->parsed.sender = strdup(sender);
+      ircConnection->parsed.channel = strdup(channel);
+      ircConnection->parsed.privmsg = strdup(privmsg);
 
       for (i = 0; i < callbacks->len; i++) {
         printf("Compairing with cb %s\n", callbacks->list[i]->keyword);
@@ -159,7 +172,6 @@ ircCommand_t ircParse(ircCtx_t *ircConnection) {
         }
       }
     }
-    ircConnection->command = IRC_CMD_PRIVMSG;
   }
   // ERROR Messages
   else if ((strncmp(cmd, "ERROR", 5)) == 0) {
@@ -175,54 +187,55 @@ ircCommand_t ircParse(ircCtx_t *ircConnection) {
   }
   // When a user joins the channel
   else if ((strncmp(cmd, "JOIN", 4)) == 0) {
+    ircConnection->command = IRC_CMD_JOIN;
 #ifdef IRC_DEBUG
     printf("[!]" WHT " *** User %s joined ***\n" CRST, sender);
 #endif
-    ircConnection->command = IRC_CMD_JOIN;
   }
   // PART and QUIT are quite the same stuff.
   else if ((strncmp(cmd, "PART", 4)) == 0) {
+    ircConnection->command = IRC_CMD_PART;
 #ifdef IRC_DEBUG
     printf("[!]" WHT " *** User %s exited: PART ***\n" CRST, sender);
 #endif
-    ircConnection->command = IRC_CMD_PART;
   } else if ((strncmp(cmd, "QUIT", 4)) == 0) {
+    ircConnection->command = IRC_CMD_QUIT;
 #ifdef IRC_DEBUG
     printf("[!]" WHT " *** User %s exited: QUIT ***\n" CRST, sender);
 #endif
-    ircConnection->command = IRC_CMD_QUIT;
   }
   free(ptrdup);
 
   return ircConnection->command;
 }
-
+/**
+  Sends a public message onthe channel
+*/
 void ircPubmsg(ircCtx_t *ircConnection, char *channel, char *dst,
                char *privmsg) {
-  uint16_t bufferLen = strlen(dst) + strlen(channel) + 2;
-  char *buffer = malloc(sizeof(char) * bufferLen);
-  if (buffer == NULL)
+  char *buffer=NULL;
+  int bufferLen = asprintf(&buffer, "%s :%s", channel, dst);
+  if (bufferLen == -1) {
+    ircConnection->status = IRC_MEMERROR;
     return;
-
-  sprintf(buffer, "%s :%s", channel, dst);
+  }
   ircPrivmsg(ircConnection, buffer, privmsg);
   free(buffer);
 }
 
 void ircPrivmsg(ircCtx_t *ircConnection, char *dst, char *privmsg) {
-  char template[] = "PRIVMSG %s :%s";
-  uint16_t privmsgLen = strlen(template) - 4 + strlen(dst) + strlen(privmsg);
-  char *buffer = malloc(sizeof(char) * privmsgLen);
-  if (buffer == NULL)
+  char *buffer = NULL;
+  int bufferLen = asprintf(&buffer, "PRIVMSG %s :%s", dst, privmsg);
+  if (bufferLen == -1) {
+    ircConnection->status = IRC_MEMERROR;
     return;
-
-  sprintf(buffer, template, dst, privmsg);
+  }
   ircSend(ircConnection, buffer);
   free(buffer);
 }
 
 void ircSend(ircCtx_t *ircConnection, char *cmd) {
-  char *buffer;
+  char *buffer = NULL;
   // Creates the message to be sent (basically adds \r\n )
   int bufferLen = asprintf(&buffer, "%s\r\n", cmd);
   if (bufferLen == -1) {
@@ -242,58 +255,37 @@ void ircSend(ircCtx_t *ircConnection, char *cmd) {
   free(buffer);
 }
 
-void ircIdentify(ircCtx_t *ircConnection) {
-  sleep(1);
+void ircJoin(ircCtx_t *ircConnection, char *channel){
   char *buffer = NULL;
-  // Sends strings to the IRC Server to complete the login process
-  asprintf(&buffer, "USER %s 0 * :%s", ircConnection->nick, IRC_REALNAME);
-  ircSend(ircConnection, buffer);
-  free(buffer);
-
-  sleep(1);
-  asprintf(&buffer, "NICK %s", ircConnection->nick);
-  ircSend(ircConnection, buffer);
-  free(buffer);
-
-  sleep(1);
-  asprintf(&buffer, "JOIN %s", ircConnection->channel);
+  int bufferLen = asprintf(&buffer, "JOIN %s", channel);
+  if (bufferLen == -1) {
+    ircConnection->status = IRC_MEMERROR;
+    return;
+  }
   ircSend(ircConnection, buffer);
   free(buffer);
   ircConnection->status = IRC_JOINED;
 }
 
-void ircClient(ircCtx_t *ircConnection) {
-  char tmpc = 0;
-  uint8_t reading = 0;
-
-  ircConnection->status = IRC_CONNECTED;
-  ircIdentify(ircConnection);
-  // While the IRC Bot's status is OK
-  while ((ircConnection->status == IRC_JOINED) ||
-         (ircConnection->status == IRC_BOT_INITIALIZED)) {
-    reading = 1;
-    // Reads a whole line from the server
-    while (reading) {
-      if ((read(ircConnection->socket, &tmpc, 1) > 0) && (tmpc != '\n')) {
-        // Removes the trailing \r
-        if (tmpc != '\r') {
-          ircConnection->bufferLen++;
-          ircConnection->buffer =
-              realloc(ircConnection->buffer, ircConnection->bufferLen);
-          if (ircConnection->buffer == NULL) {
-            ircConnection->status = IRC_MEMERROR;
-            return;
-          }
-          ircConnection->buffer[ircConnection->bufferLen - 1] = tmpc;
-        }
-      } else {
-        reading = 0;
-      }
-    }
-    // Sends the received line to the IRC parser
-    ircParse(ircConnection);
-    bzero(ircConnection->buffer, ircConnection->bufferLen);
-    ircConnection->bufferLen = 0;
-    reading = 1;
+void ircUser(ircCtx_t *ircConnection, char *nick, char *realname){
+  char *buffer = NULL;
+  int  bufferLen = asprintf(&buffer, "USER %s 0 * :%s", nick, realname);
+  if (bufferLen == -1) {
+    ircConnection->status = IRC_MEMERROR;
+    return;
   }
+  ircSend(ircConnection, buffer);
+  free(buffer);
+}
+
+void ircNick(ircCtx_t *ircConnection, char *nick){
+  char *buffer = NULL;
+  int bufferLen = asprintf(&buffer, "NICK %s", nick);
+  if (bufferLen == -1) {
+    ircConnection->status = IRC_MEMERROR;
+    return;
+  }
+  ircSend(ircConnection, buffer);
+  free(buffer);
+  ircConnection->nick = strdup(nick);
 }

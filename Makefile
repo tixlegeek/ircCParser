@@ -1,6 +1,6 @@
 CC ?= gcc
 CCOPTIONS = -W -Wall -g
-PROJECTNAME = ircBot
+PROJECTNAME = tixbot
 SRC = example.c
 SRC += ./irc/callbacks.c
 SRC += ./irc/irc.c
@@ -20,3 +20,4 @@ $(PROJECTNAME): $(OBJS)
 		$(CC) -o $(@F) $(OBJS) $(CCOPTIONS) $(INC)
 clean:
 	rm -f $(OBJS)
+	rm -f $(PROJECTNAME)
